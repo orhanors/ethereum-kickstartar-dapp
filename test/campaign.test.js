@@ -6,6 +6,7 @@ const compiledCampaign = require("../ethereum/build/Campaign.json");
 
 const web3 = new Web3(ganache.provider());
 
+const MINIMUM_CONTRIBITION = "100";
 let accounts;
 let campaign;
 let factory;
@@ -19,7 +20,7 @@ beforeEach(async () => {
 		.send({ from: accounts[0], gas: "1000000" });
 
 	await factory.methods
-		.createCampaign("100")
+		.createCampaign(MINIMUM_CONTRIBITION)
 		.send({ from: accounts[0], gas: "1000000" });
 
 	[campaignAddress] = await factory.methods.getDeployedCampaigns().call();
@@ -35,5 +36,57 @@ describe("Campaigns", () => {
 		//Check if the contracts have address
 		assert.ok(factory.options.address);
 		assert.ok(campaign.options.address);
+	});
+
+	it("marks creator as the manager", async () => {
+		const manager = await campaign.methods.manager().call();
+		assert.strictEqual(accounts[0], manager);
+	});
+
+	it("allows people to send money and marks them as approvers", async () => {
+		await campaign.methods
+			.contribute()
+			.send({ from: accounts[1], value: "200" });
+
+		//When we try to reach mapping, we can just access spesific element
+		const isContributor = await campaign.methods
+			.approvers(accounts[1])
+			.call();
+		assert(isContributor);
+	});
+
+	it("requires a minimum contribution", async () => {
+		const wrongContribution = toString(parseInt(MINIMUM_CONTRIBITION) - 20);
+		try {
+			await campaign.methods
+				.contribute()
+				.send({ value: wrongContribution, from: accounts[1] });
+
+			assert(false);
+		} catch (error) {
+			assert(error);
+		}
+	});
+
+	it("allows manager to create a payment request", async () => {
+		const initialRequest = {
+			description: "Buy batteries",
+			value: "200",
+			address: accounts[1],
+		};
+		await campaign.methods
+			.createRequest(
+				initialRequest.description,
+				initialRequest.value,
+				initialRequest.address
+			)
+			.send({ from: accounts[0], gas: "1000000" });
+
+		const resultRequest = await campaign.methods.requests(0).call();
+
+		assert.strictEqual(
+			initialRequest.description,
+			resultRequest.description
+		);
 	});
 });
